@@ -1,0 +1,3 @@
+#!/bin/sh
+# Start the Session Board and open it in the browser. Extra args go to server.py.
+exec python3 "$(cd "$(dirname "$0")" && pwd)/server.py" "$@"

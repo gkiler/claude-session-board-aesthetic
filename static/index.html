@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Board</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 16 Q16 2 30 16 Q16 30 2 16Z' fill='%23131028' stroke='%23e8e3ef' stroke-opacity='.4'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%232a5bd7'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23000'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  @property --pace { syntax: "<number>"; inherits: true; initial-value: 1; }
+  @property --age { syntax: "<number>"; inherits: true; initial-value: 0; }
+  :root { --pace: 1; color-scheme: dark; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: #07070f; color: #e8e3ef; font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif; overflow-x: hidden; }
+  a { color: #d9c15a; } a:hover { color: #f0d86b; }
+  button { font: inherit; color: inherit; }
+
+  .board { position: relative; min-height: 100vh; overflow: hidden;
+    background: radial-gradient(ellipse 70% 50% at 30% 20%, rgba(42,91,215,0.12), transparent 70%), radial-gradient(ellipse 50% 40% at 85% 75%, rgba(107,63,191,0.12), transparent 70%), linear-gradient(180deg, #05050b 0%, #0a0a18 40%, #07070f 100%); }
+
+  /* ---- starfield (three drifting layers) */
+  .stars { position: fixed; inset: -240px; background-repeat: repeat; pointer-events: none; z-index: 0; }
+  .s1 { background-image: radial-gradient(1px 1px at 22px 34px, rgba(232,227,239,0.9) 50%, transparent 51%), radial-gradient(1px 1px at 140px 92px, rgba(232,227,239,0.7) 50%, transparent 51%), radial-gradient(1.5px 1.5px at 210px 180px, rgba(143,181,255,0.9) 50%, transparent 51%), radial-gradient(1px 1px at 68px 200px, rgba(232,227,239,0.6) 50%, transparent 51%), radial-gradient(1px 1px at 250px 40px, rgba(232,227,239,0.5) 50%, transparent 51%); background-size: 280px 240px; animation: drift1 calc(140s / var(--pace)) linear infinite; opacity: 0.8; }
+  .s2 { background-image: radial-gradient(1px 1px at 60px 60px, rgba(232,227,239,0.5) 50%, transparent 51%), radial-gradient(1px 1px at 170px 130px, rgba(63,209,198,0.7) 50%, transparent 51%), radial-gradient(1px 1px at 110px 210px, rgba(232,227,239,0.4) 50%, transparent 51%); background-size: 220px 260px; animation: drift2 calc(220s / var(--pace)) linear infinite; opacity: 0.6; }
+  .s3 { background-image: radial-gradient(2px 2px at 90px 40px, rgba(139,108,255,0.8) 50%, transparent 51%), radial-gradient(1px 1px at 30px 150px, rgba(232,227,239,0.35) 50%, transparent 51%); background-size: 340px 300px; animation: drift3 calc(90s / var(--pace)) linear infinite; opacity: 0.7; }
+  @keyframes drift1 { to { transform: translate(-60px, 40px); } }
+  @keyframes drift2 { to { transform: translate(40px, 30px); } }
+  @keyframes drift3 { to { transform: translate(-90px, -20px); } }
+
+  /* ---- the watcher: a 500x190 eye, scaled to the viewport by JS */
+  .sky { position: relative; height: 236px; z-index: 1; }
+  .eye-scale { position: absolute; left: 50%; top: 14px; width: 500px; height: 190px; transform-origin: 50% 0; transform: translateX(-50%) scale(var(--eye-scale, 1)); }
+  .eye-scale::before { content: ""; position: absolute; left: -120px; right: -120px; top: -80px; bottom: -60px; background: radial-gradient(ellipse 50% 60% at 50% 50%, rgba(0,0,0,0.75), rgba(0,0,0,0) 70%); pointer-events: none; }
+  .eye { position: absolute; inset: 0; clip-path: path("M0 95 Q250 -52 500 95 Q250 242 0 95 Z"); background: radial-gradient(ellipse 60% 75% at 50% 55%, #14132a 0%, #0d0c1e 45%, #0d0812 78%, #0e050b 100%); }
+  .sheen { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(120,130,190,0.10) 0%, rgba(120,130,190,0.03) 30%, rgba(0,0,0,0) 55%, rgba(60,20,30,0.18) 100%); }
+  .veins { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .veins path { fill: none; stroke: #8c1524; stroke-linecap: round; stroke-linejoin: round; }
+  .veins .v1 { stroke-width: 1.1; opacity: 0.42; } .veins .v2 { stroke-width: 0.7; opacity: 0.34; } .veins .v3 { stroke-width: 0.45; opacity: 0.28; }
+  .bloodshot { position: absolute; inset: 0; background: radial-gradient(ellipse 18% 50% at 0% 52%, rgba(120,18,32,0.28), transparent 70%), radial-gradient(ellipse 18% 50% at 100% 52%, rgba(120,18,32,0.28), transparent 70%); }
+  .iris { position: absolute; left: 152px; top: -6px; width: 196px; height: 196px; border-radius: 50%; overflow: hidden; background: #040409; box-shadow: 0 0 0 3px rgba(0,0,0,0.95), 0 0 0 9px rgba(0,0,0,0.4), 0 0 60px rgba(20,40,120,0.28); }
+  .shimmer { position: absolute; inset: -20%; background: conic-gradient(from 0deg, #10234f, #2c2470, #145458, #142a5e, #35226a, #10234f); opacity: 0.9; animation: spin calc(140s / var(--pace)) linear infinite; }
+  .fibers { position: absolute; inset: 0; border-radius: 50%; mix-blend-mode: screen; opacity: 0.85; background:
+      repeating-conic-gradient(from 0deg, rgba(150,170,255,0.20) 0deg 0.7deg, transparent 0.7deg 5.3deg),
+      repeating-conic-gradient(from 2.1deg, rgba(120,200,220,0.14) 0deg 0.5deg, transparent 0.5deg 8.9deg),
+      repeating-conic-gradient(from 1.3deg, rgba(200,180,255,0.10) 0deg 1.1deg, transparent 1.1deg 13.7deg),
+      repeating-conic-gradient(from 4.7deg, rgba(255,255,255,0.07) 0deg 0.3deg, transparent 0.3deg 3.1deg); }
+  .fibers2 { position: absolute; inset: 0; border-radius: 50%; mix-blend-mode: multiply; background:
+      repeating-conic-gradient(from 0.6deg, rgba(0,0,0,0.55) 0deg 0.9deg, transparent 0.9deg 7.7deg),
+      repeating-conic-gradient(from 3.9deg, rgba(0,0,0,0.4) 0deg 1.6deg, transparent 1.6deg 17.3deg); }
+  .depth { position: absolute; inset: 0; border-radius: 50%; background:
+      radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 22%, rgba(0,0,0,0.18) 36%, rgba(0,0,0,0.42) 62%, rgba(0,0,0,0.78) 84%, rgba(0,0,0,0.98) 100%),
+      radial-gradient(circle at 50% 50%, rgba(0,0,0,0.55) 26%, rgba(0,0,0,0) 34%),
+      radial-gradient(circle at 50% 50%, transparent 38%, rgba(140,160,255,0.06) 39%, transparent 42%); }
+  .grain { position: absolute; inset: 0; border-radius: 50%; opacity: 0.35; mix-blend-mode: overlay; }
+  .gaze { position: absolute; inset: 0; animation: gaze calc(23s / var(--pace)) ease-in-out infinite; }
+  .eye.tracking .gaze { animation: none; transform: translate(var(--gx, 0px), var(--gy, 10px)); transition: transform 1.4s cubic-bezier(.2,.8,.2,1); }
+  .pupil-wrap { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  .pupil { position: absolute; left: -34px; top: -40px; width: 68px; height: 80px; border-radius: 50%; background: radial-gradient(ellipse at 50% 50%, #000 64%, rgba(0,0,0,0.92) 74%, rgba(0,0,0,0) 82%); animation: dilate calc(19s / var(--pace)) ease-in-out infinite; }
+  .eye.tracking .pupil { animation-duration: calc(9s / var(--pace)); }
+  .glint { position: absolute; left: 58px; top: 40px; width: 16px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.14); transform: rotate(-24deg); filter: blur(0.3px); }
+  .glint2 { position: absolute; left: 128px; top: 132px; width: 6px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.08); }
+  .lid { position: absolute; left: 0; width: 100%; height: 51%; background: #07070f; }
+  .lid-top { top: 0; transform: translateY(-100%); animation: blinkTop calc(31s / var(--pace)) ease-in-out infinite; box-shadow: 0 6px 18px rgba(0,0,0,0.85); }
+  .lid-bot { bottom: 0; transform: translateY(100%); animation: blinkBot calc(31s / var(--pace)) ease-in-out infinite; box-shadow: 0 -4px 12px rgba(0,0,0,0.7); }
+  .lidshadow { position: absolute; left: 0; right: 0; top: 0; height: 62%; background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.45) 22%, rgba(0,0,0,0) 60%); pointer-events: none; }
+  .waterline { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .waterline path { fill: none; stroke: rgba(150,28,40,0.55); stroke-width: 2.2; }
+  .outline { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .outline path { fill: none; stroke: rgba(232,227,239,0.13); stroke-width: 1; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes gaze { 0%, 100% { transform: translate(-26px, 12px); } 28% { transform: translate(-29px, 14px); } 52% { transform: translate(-25px, 11px); } 55% { transform: translate(-25px, 11px); } 57% { transform: translate(38px, -4px); } 70% { transform: translate(40px, -3px); } 72% { transform: translate(-26px, 12px); } 88% { transform: translate(-28px, 13px); } }
+  @keyframes dilate { 0% { transform: scale(1); } 42% { transform: scale(1.12); } 50% { transform: scale(1.12); } 52% { transform: scale(0.62); } 56% { transform: scale(0.62); } 66% { transform: scale(0.98); } 100% { transform: scale(1); } }
+  @keyframes blinkTop { 0%, 26% { transform: translateY(-100%); } 30% { transform: translateY(-72%); } 58% { transform: translateY(-72%); } 62% { transform: translateY(-100%); } 93% { transform: translateY(-100%); } 94.2% { transform: translateY(0); } 95.4% { transform: translateY(-100%); } 100% { transform: translateY(-100%); } }
+  @keyframes blinkBot { 0%, 26% { transform: translateY(100%); } 30% { transform: translateY(86%); } 58% { transform: translateY(86%); } 62% { transform: translateY(100%); } 93% { transform: translateY(100%); } 94.2% { transform: translateY(0); } 95.4% { transform: translateY(100%); } 100% { transform: translateY(100%); } }
+
+  .haze { position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(180deg, rgba(7,7,15,0) 0%, rgba(7,7,15,0.85) 70%, #07070f 100%); }
+  .horizon { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(232,227,239,0.24) 30%, rgba(232,227,239,0.24) 70%, transparent); }
+  .sallow { position: fixed; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(ellipse 34% 40% at 19% 56%, rgba(217,193,90,0.2), transparent 70%); animation: sallow calc(6s / var(--pace)) ease-in-out infinite alternate; opacity: 0; transition: opacity 2s; }
+  body.has-needs .sallow { opacity: 1; }
+  @keyframes sallow { from { opacity: 0.5; } to { opacity: 1; } }
+
+  /* ---- chrome */
+  .legend { position: absolute; left: 24px; top: 14px; display: flex; flex-wrap: wrap; gap: 14px; font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 10.5px; color: #6f6b88; z-index: 2; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend b { font-weight: 500; color: #9d97b5; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .status { position: absolute; right: 24px; top: 14px; text-align: right; font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 10.5px; color: #6f6b88; line-height: 1.6; z-index: 2; }
+  .status .warn { color: #e6cf63; }
+  .status .bad { color: #e05a63; }
+  .status .lost { color: #e05a63; }
+
+  /* ---- lanterns */
+  .lanterns { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 22px 18px; max-width: 1440px; margin: 0 auto; padding: 36px 32px 60px; }
+  .lantern { --c: #55506e; position: relative; text-align: center; background: none; border: 0; padding: 4px 0 0; cursor: pointer; border-radius: 10px; transition: transform .25s ease, opacity 1.2s ease, filter 1.2s ease; }
+  .lantern:hover { transform: translateY(-2px); }
+  .lantern:focus-visible { outline: 1px solid rgba(232,227,239,0.35); outline-offset: 4px; }
+  .lantern.notab { cursor: default; }
+  .lantern.notab:hover { transform: none; }
+  .lantern.flash .glass { box-shadow: 0 0 0 2px rgba(232,227,239,0.7), 0 0 40px rgba(232,227,239,0.5) !important; }
+  .glass { position: relative; width: 62px; height: 62px; margin: 0 auto; border: 1px solid rgba(232,227,239,0.16); border-radius: 31px 31px 6px 6px; background: linear-gradient(rgba(255,255,255,0.03), rgba(0,0,0,0.25)); transition: box-shadow .8s ease, border-color .8s ease; }
+  .glass::after { content: ""; position: absolute; left: 11px; right: 11px; bottom: -6px; height: 5px; border: 1px solid rgba(232,227,239,0.16); border-top: none; border-radius: 0 0 4px 4px; }
+  .flame { position: absolute; left: 50%; bottom: 9px; width: 20px; height: 40px; margin-left: -10px; border-radius: 50% 50% 45% 45% / 62% 62% 38% 38%; transform-origin: 50% 100%; filter: blur(0.4px); animation: flicker calc(0.9s / var(--pace)) ease-in-out infinite alternate; transition: height .8s ease, width .8s ease, opacity .8s ease; }
+  .core { width: 9px; height: 19px; margin-left: -4.5px; bottom: 10px; opacity: 0.9; animation-duration: calc(0.7s / var(--pace)); }
+  @keyframes flicker { 0% { transform: scale(1, 1) skewX(0deg); } 30% { transform: scale(1.06, 0.95) skewX(2deg); } 60% { transform: scale(0.95, 1.08) skewX(-3deg); } 100% { transform: scale(1.02, 1) skewX(1deg); } }
+  .spark { position: absolute; bottom: 44px; left: 50%; width: 2px; height: 2px; border-radius: 50%; background: #bcd3ff; box-shadow: 0 0 6px 1px rgba(79,140,255,0.9); opacity: 0; display: none; }
+  .working .spark { display: block; animation: rise calc(2.4s / var(--pace)) ease-out infinite; }
+  @keyframes rise { 0% { transform: translate(0, 0) scale(1); opacity: 0; } 12% { opacity: 1; } 100% { transform: translate(var(--dx, 0px), -58px) scale(0.4); opacity: 0; } }
+
+  .working { --c: #4f8cff; }
+  .working .flame { background: radial-gradient(ellipse at 50% 85%, #cfe0ff 0%, #4f8cff 40%, rgba(79,140,255,0) 74%); }
+  .working .core { background: radial-gradient(ellipse at 50% 80%, #ffffff 0%, #9dc0ff 50%, rgba(157,192,255,0) 75%); }
+  .working .glass { animation: glow calc(2.4s / var(--pace)) ease-in-out infinite alternate; }
+  @keyframes glow { from { box-shadow: 0 0 22px rgba(79,140,255,0.16), inset 0 -12px 22px rgba(79,140,255,0.10); } to { box-shadow: 0 0 40px rgba(79,140,255,0.3), inset 0 -12px 22px rgba(79,140,255,0.16); } }
+
+  .needs { --c: #e6cf63; }
+  .needs .flame { height: 56px; width: 24px; margin-left: -12px; background: radial-gradient(ellipse at 50% 85%, #fff5c2 0%, #e6cf63 38%, rgba(230,207,99,0) 74%); animation-duration: calc(0.55s / var(--pace)); }
+  .needs .core { width: 9px; height: 19px; margin-left: -4.5px; animation-duration: calc(0.7s / var(--pace)); background: radial-gradient(ellipse at 50% 80%, #ffffff 0%, #f0d86b 50%, rgba(240,216,107,0) 75%); }
+  .needs .glass { border-color: rgba(230,207,99,0.45); animation: glowy calc(1.6s / var(--pace)) ease-in-out infinite alternate; }
+  @keyframes glowy { from { box-shadow: 0 0 26px rgba(230,207,99,0.22), inset 0 -16px 26px rgba(230,207,99,0.12); } to { box-shadow: 0 0 56px rgba(230,207,99,0.44), inset 0 -16px 26px rgba(230,207,99,0.2); } }
+  .crack { position: absolute; left: 0; top: 0; width: 62px; height: 62px; color: #f0d86b; filter: drop-shadow(0 0 4px rgba(240,216,107,0.9)); display: none; }
+  .needs .crack { display: block; }
+  .crack path { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linejoin: round; stroke-dasharray: 100; stroke-dashoffset: 100; }
+  .needs .crack path { animation: crack calc(2.4s / var(--pace)) ease-out forwards, flicker2 calc(3.4s / var(--pace)) ease-in-out infinite; }
+  .crack path:nth-child(2) { stroke-dasharray: 40; stroke-dashoffset: 40; animation-delay: calc(1.2s / var(--pace)), 0s; }
+  @keyframes crack { to { stroke-dashoffset: 0; } }
+  @keyframes flicker2 { 0%, 100% { opacity: 1; } 47% { opacity: 0.75; } 52% { opacity: 1; } 55% { opacity: 0.65; } 60% { opacity: 1; } }
+  .sign { position: absolute; left: 50%; top: -36px; width: 40px; height: 40px; margin-left: -20px; color: #e6cf63; opacity: 0; filter: drop-shadow(0 0 6px rgba(230,207,99,0.7)); display: none; }
+  .needs .sign { display: block; animation: bloom calc(3.2s / var(--pace)) ease-out forwards, hover calc(5s / var(--pace)) ease-in-out infinite; }
+  @keyframes bloom { 0% { opacity: 0; filter: blur(6px); } 100% { opacity: 0.95; filter: blur(0) drop-shadow(0 0 6px rgba(230,207,99,0.7)); } }
+  @keyframes hover { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-4px) rotate(5deg); } }
+
+  /* resting sallows with age: --age runs 0 -> 1 over the first half hour */
+  .resting { --c: #55506e; }
+  .resting .flame { height: 12px; width: 11px; margin-left: -5.5px; background: radial-gradient(ellipse at 50% 85%, #b9a9ff 0%, #5b4d8c 45%, rgba(91,77,140,0) 75%); opacity: calc(0.75 - 0.35 * var(--age)); animation-duration: calc(2.6s / var(--pace)); filter: blur(0.4px) sepia(var(--age)); }
+  .resting .core { display: none; }
+  .resting .glass { border-color: rgba(232,227,239,0.09); background: linear-gradient(rgba(255,255,255,0.03), rgba(0,0,0,0.25)), linear-gradient(rgba(217,193,90,calc(0.08 * var(--age))), rgba(120,100,40,calc(0.14 * var(--age)))); }
+  .resting .plate { opacity: calc(0.66 - 0.28 * var(--age)); }
+
+  .blocked { --c: #c22a33; }
+  .blocked .glass { box-shadow: 0 0 24px rgba(194,42,51,0.2), inset 0 -12px 22px rgba(194,42,51,0.12); border-color: rgba(194,42,51,0.4); }
+  .blocked .flame { height: 26px; background: radial-gradient(ellipse at 50% 85%, #ff9aa0 0%, #c22a33 40%, rgba(194,42,51,0) 74%); animation: gutter calc(2.8s / var(--pace)) ease-in-out infinite; }
+  .blocked .core { height: 19px; background: radial-gradient(ellipse at 50% 80%, #ffd8da 0%, #e05a63 50%, rgba(224,90,99,0) 75%); animation: gutter calc(2.8s / var(--pace)) ease-in-out infinite; }
+  @keyframes gutter { 0%, 100% { transform: scale(1, 1); opacity: 1; } 20% { transform: scale(0.9, 0.7) skewX(4deg); opacity: 0.8; } 35% { transform: scale(1.05, 1.1) skewX(-3deg); opacity: 1; } 55% { transform: scale(0.8, 0.5) skewX(6deg); opacity: 0.5; } 70% { transform: scale(1, 0.9); opacity: 0.95; } }
+  .drip { position: absolute; top: 0; width: 2px; height: 0; background: linear-gradient(#c22a33, rgba(194,42,51,0)); display: none; }
+  .blocked .drip { display: block; animation: drip calc(5s / var(--pace)) ease-in infinite; }
+  @keyframes drip { 0% { height: 0; opacity: 0; } 15% { opacity: 1; } 80% { height: 100%; opacity: 0.9; } 100% { height: 100%; opacity: 0; } }
+
+  .gone { --c: #3a3750; opacity: 0.22; filter: grayscale(0.8); }
+  .gone .flame, .gone .core { display: none; }
+  .gone .glass { border-style: dashed; }
+
+  .plate { margin-top: 8px; line-height: 1.1; padding: 0 4px; }
+  .name { font-family: Cinzel, "Trajan Pro", Georgia, serif; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #c9c3d8; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .title { font-style: italic; font-size: 15px; line-height: 1.15; margin: 2px 0 3px; color: #e8e3ef; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  .foot { display: flex; justify-content: center; align-items: flex-start; gap: 6px; line-height: 1.2; font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--c); overflow: hidden; }
+  .foot span { overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .g { width: 12px; height: 12px; flex: none; display: none; }
+  .working .g-work, .needs .g-needs, .resting .g-rest, .blocked .g-blocked, .gone .g-gone { display: block; }
+  .g-spin { animation: spin calc(3s / var(--pace)) linear infinite; }
+  .detail { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 10px; line-height: 1.25; color: #6f6b88; margin-top: 5px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; min-height: 12px; }
+
+  .empty { position: relative; z-index: 1; text-align: center; font-style: italic; color: #6f6b88; padding: 40px 20px; font-size: 18px; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: rgba(10,10,24,0.92); border: 1px solid rgba(232,227,239,0.18); color: #e8e3ef; font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 11px; padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 5; }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { :root { --pace: 0.35; } .stars { animation: none; } }
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="stars s1"></div>
+  <div class="stars s2"></div>
+  <div class="stars s3"></div>
+  <div class="sallow"></div>
+
+  <div class="legend" id="legend">
+    <span><i class="dot" style="background: #4f8cff;"></i>working <b data-count="working">0</b></span>
+    <span><i class="dot" style="background: #e6cf63;"></i>needs you <b data-count="needs-you">0</b></span>
+    <span><i class="dot" style="background: #55506e;"></i>resting <b data-count="resting">0</b></span>
+    <span><i class="dot" style="background: #c22a33;"></i>blocked <b data-count="blocked">0</b></span>
+  </div>
+  <div class="status" id="status">connecting…</div>
+
+  <div class="sky">
+    <div class="eye-scale" id="eyeScale">
+      <div class="eye" id="eye">
+        <div class="bloodshot"></div>
+        <svg class="veins" viewBox="0 0 500 190" preserveAspectRatio="none">
+          <defs>
+            <filter id="wobble" x="-10%" y="-20%" width="120%" height="140%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.035 0.09" numOctaves="2" seed="7" result="n"></feTurbulence>
+              <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap>
+            </filter>
+            <filter id="grainf"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3"></feTurbulence><feColorMatrix type="saturate" values="0"></feColorMatrix></filter>
+          </defs>
+          <g filter="url(#wobble)">
+            <path class="v1" d="M0 97 L 22 95 L 48 93 L 74 94 L 98 92 L 118 93"></path>
+            <path class="v2" d="M22 95 L 40 89 L 62 85 L 84 84 L 100 80"></path>
+            <path class="v3" d="M62 85 L 74 79 L 90 75"></path>
+            <path class="v2" d="M28 97 L 50 102 L 72 106 L 96 108 L 116 113"></path>
+            <path class="v3" d="M72 106 L 86 113 L 100 121"></path>
+            <path class="v3" d="M98 92 L 112 87 L 128 85"></path>
+            <path class="v3" d="M48 93 L 58 97 L 70 98"></path>
+            <path class="v1" d="M500 97 L 478 95 L 452 93 L 426 94 L 402 92 L 382 93"></path>
+            <path class="v2" d="M478 95 L 460 89 L 438 85 L 416 84 L 400 80"></path>
+            <path class="v3" d="M438 85 L 426 79 L 410 75"></path>
+            <path class="v2" d="M472 97 L 450 102 L 428 106 L 404 108 L 384 113"></path>
+            <path class="v3" d="M428 106 L 414 113 L 400 121"></path>
+            <path class="v3" d="M402 92 L 388 87 L 372 85"></path>
+            <path class="v3" d="M452 93 L 442 97 L 430 98"></path>
+          </g>
+        </svg>
+        <div class="sheen"></div>
+        <div class="gaze" id="gaze">
+        <div class="iris">
+          <div class="shimmer"></div>
+          <div class="fibers"></div>
+          <div class="fibers2"></div>
+          <svg class="grain" viewBox="0 0 196 196" preserveAspectRatio="none"><rect width="196" height="196" filter="url(#grainf)"></rect></svg>
+          <div class="depth"></div>
+          <div class="pupil-wrap" id="pupil"><div class="pupil"></div></div>
+          <div class="glint"></div>
+          <div class="glint2"></div>
+        </div>
+        </div>
+        <div class="lidshadow"></div>
+        <svg class="waterline" viewBox="0 0 500 190" preserveAspectRatio="none"><path d="M0 95 Q250 242 500 95"></path></svg>
+        <div class="lid lid-top"></div>
+        <div class="lid lid-bot"></div>
+      </div>
+      <svg class="outline" viewBox="0 0 500 190"><path d="M0 95 Q250 -52 500 95 Q250 242 0 95 Z"></path></svg>
+    </div>
+    <div class="haze"></div>
+    <div class="horizon"></div>
+  </div>
+
+  <div class="lanterns" id="lanterns"></div>
+  <div class="empty" id="empty" hidden>No sessions are lit. Open a Claude Code window and the eye will find it.</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<template id="lanternTpl">
+  <button class="lantern" type="button">
+    <div class="glass">
+      <svg class="sign" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M24 24 C 25 17, 31 12, 37 15 C 40 17, 39 22, 35 22"></path><path d="M24 24 C 25 17, 31 12, 37 15 C 40 17, 39 22, 35 22" transform="rotate(120 24 24)"></path><path d="M24 24 C 25 17, 31 12, 37 15 C 40 17, 39 22, 35 22" transform="rotate(240 24 24)"></path><circle cx="24" cy="24" r="2.2" fill="currentColor" stroke="none"></circle></svg>
+      <span class="drip" style="left: 30%; animation-delay: calc(0s / var(--pace));"></span><span class="drip" style="left: 62%; animation-delay: calc(2.3s / var(--pace));"></span>
+      <div class="flame"></div><div class="flame core"></div>
+      <span class="spark" style="--dx: -9px; animation-delay: calc(0s / var(--pace));"></span><span class="spark" style="--dx: 6px; animation-delay: calc(0.7s / var(--pace));"></span><span class="spark" style="--dx: -3px; animation-delay: calc(1.3s / var(--pace));"></span><span class="spark" style="--dx: 10px; animation-delay: calc(1.9s / var(--pace));"></span>
+      <svg class="crack" viewBox="0 0 62 62"><path d="M52 5 L44 16 L48 23 L38 30 L41 39 L33 46 L36 56"></path><path d="M44 16 L36 12 M38 30 L30 26 M41 39 L47 43"></path></svg>
+    </div>
+    <div class="plate">
+      <div class="name"></div>
+      <div class="title"></div>
+      <div class="foot">
+        <svg class="g g-needs" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 7 C 7.5 4.5, 9.5 3, 11 4"></path><path d="M7 7 C 7.5 4.5, 9.5 3, 11 4" transform="rotate(120 7 7)"></path><path d="M7 7 C 7.5 4.5, 9.5 3, 11 4" transform="rotate(240 7 7)"></path></svg>
+        <svg class="g g-work g-spin" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5" stroke-dasharray="6 4"></circle></svg>
+        <svg class="g g-rest" viewBox="0 0 14 14" fill="currentColor"><circle cx="7" cy="7" r="2.5"></circle></svg>
+        <svg class="g g-blocked" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3 L11 11 M11 3 L3 11"></path></svg>
+        <svg class="g g-gone" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="7" cy="7" r="5" stroke-dasharray="2 3"></circle></svg>
+        <span></span>
+      </div>
+      <div class="detail"></div>
+    </div>
+  </button>
+</template>
+
+<script>
+(() => {
+  const STATE_CLASS = { "needs-you": "needs", working: "working", resting: "resting", blocked: "blocked", gone: "gone" };
+  const AGE_FULL = 30 * 60; // seconds until a resting lantern is fully sallow
+  const lanterns = document.getElementById("lanterns");
+  const empty = document.getElementById("empty");
+  const status = document.getElementById("status");
+  const legend = document.getElementById("legend");
+  const eye = document.getElementById("eye");
+  const eyeScale = document.getElementById("eyeScale");
+  const toast = document.getElementById("toast");
+  const tpl = document.getElementById("lanternTpl");
+  const nodes = new Map();   // key -> element
+  let lastSnapshot = null;
+  let toastTimer = null;
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+  }
+
+  function fitEye() {
+    const w = document.documentElement.clientWidth;
+    const s = Math.max(0.7, Math.min(1.2, (w - 80) / 760));
+    eyeScale.style.setProperty("--eye-scale", s.toFixed(3));
+    document.querySelector(".sky").style.height = Math.round(14 + 190 * s + 32) + "px";
+    aim();
+  }
+  window.addEventListener("resize", fitEye);
+
+  function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+  function tooltip(s) {
+    const lines = [s.name, s.cwd];
+    if (s.prompt) lines.push("prompt: " + s.prompt);
+    if (s.detail) lines.push(s.detail);
+    if (s.sessionId) lines.push("session " + s.sessionId.slice(0, 8));
+    if (s.tty) lines.push(s.tty + (s.hasTab ? " · click to raise" : " · no Terminal tab found"));
+    else if (s.kind === "background") lines.push("background agent (no tab)");
+    return lines.filter(Boolean).join("\n");
+  }
+
+  function render(snap) {
+    lastSnapshot = snap;
+    const now = snap.meta.now;
+    const seen = new Set(snap.sessions.map(s => s.key));
+    let needsCount = 0;
+    for (const [key, el] of nodes) {
+      if (!seen.has(key)) { el.remove(); nodes.delete(key); }
+    }
+
+    snap.sessions.forEach((s, i) => {
+      let el = nodes.get(s.key);
+      if (!el) {
+        el = tpl.content.firstElementChild.cloneNode(true);
+        el.dataset.key = s.key;
+        el.querySelector(".flame").style.animationDelay = `calc(${(Math.random() * 1.2).toFixed(2)}s / var(--pace))`;
+        el.addEventListener("click", () => focus(el.dataset.key));
+        nodes.set(s.key, el);
+      }
+      const cls = STATE_CLASS[s.state] || "resting";
+      const wanted = "lantern " + cls + (s.hasTab ? "" : " notab");
+      if (el.className.replace(" flash", "") !== wanted) el.className = wanted;
+      const age = s.state === "resting" ? Math.max(0, Math.min(1, (now - (s.state_since || now)) / AGE_FULL)) : 0;
+      el.style.setProperty("--age", age.toFixed(3));
+      setText(el, ".name", s.name);
+      setText(el, ".title", s.title);
+      setText(el, ".foot span", s.foot);
+      setText(el, ".detail", s.detail || "");
+      el.title = tooltip(s);
+      if (s.state === "needs-you") needsCount++;
+      // keep DOM order = snapshot order (stable by start time)
+      if (lanterns.children[i] !== el) lanterns.insertBefore(el, lanterns.children[i] || null);
+    });
+    empty.hidden = snap.sessions.length > 0;
+    document.body.classList.toggle("has-needs", needsCount > 0);
+
+    const c = snap.meta.counts || {};
+    legend.querySelectorAll("[data-count]").forEach(b => { b.textContent = c[b.dataset.count] || 0; });
+    renderStatus(snap.meta, true);
+    document.title = (needsCount ? `(${needsCount}) ` : "") + "Session Board";
+    aim();
+  }
+
+  function setText(el, sel, text) {
+    const n = el.querySelector(sel);
+    if (n && n.textContent !== text) n.textContent = text;
+  }
+
+  function renderStatus(meta, connected) {
+    const bits = [];
+    if (!connected) bits.push(`<span class="lost">lost the server · retrying</span>`);
+    const n = (lastSnapshot ? lastSnapshot.sessions.length : 0);
+    bits.push(`${n} session${n === 1 ? "" : "s"} · polled every ${meta.poll || 2}s`);
+    if (meta.hooks_installed) {
+      const ago = meta.hook_last_ts ? Math.round(meta.now - meta.hook_last_ts) : null;
+      bits.push(`hooks on · ${meta.hook_events} events${ago != null ? " · last " + fmtAgo(ago) : ""}`);
+    } else {
+      bits.push(`<span class="warn">hooks off · run: python3 server.py --install-hooks</span>`);
+    }
+    for (const [k, v] of Object.entries(meta.errors || {})) bits.push(`<span class="bad">${k}: ${esc(v)}</span>`);
+    status.innerHTML = bits.join("<br>");
+  }
+
+  function fmtAgo(s) { return s < 60 ? s + "s ago" : Math.round(s / 60) + "m ago"; }
+
+  // The eye looks at the first lantern that needs her; otherwise it wanders.
+  function aim() {
+    const target = lanterns.querySelector(".lantern.needs");
+    if (!target) { eye.classList.remove("tracking"); return; }
+    const r = target.getBoundingClientRect();
+    const e = eyeScale.getBoundingClientRect();
+    const cx = e.left + e.width / 2, cy = e.top + e.height / 2;
+    const dx = (r.left + r.width / 2) - cx;
+    const dy = (r.top + 30) - cy;
+    const gx = Math.max(-60, Math.min(60, dx / 8));
+    const gy = Math.max(-10, Math.min(22, dy / 14));
+    eye.style.setProperty("--gx", gx.toFixed(1) + "px");
+    eye.style.setProperty("--gy", gy.toFixed(1) + "px");
+    eye.classList.add("tracking");
+  }
+
+  async function focus(key) {
+    const s = lastSnapshot && lastSnapshot.sessions.find(x => x.key === key);
+    if (!s) return;
+    if (!s.tty) { showToast(s.kind === "background" ? "background agent: no window to raise" : "no tty for this session"); return; }
+    const el = nodes.get(key);
+    try {
+      const res = await fetch("/api/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tty: s.tty }) });
+      const j = await res.json();
+      if (j.ok) {
+        if (el) { el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 700); }
+      } else {
+        showToast("could not raise tab: " + (j.error || "unknown"));
+      }
+    } catch (e) {
+      showToast("server unreachable");
+    }
+  }
+
+  function connect() {
+    const es = new EventSource("/events");
+    es.addEventListener("snapshot", ev => {
+      try { render(JSON.parse(ev.data)); } catch (e) { console.error(e); }
+    });
+    es.onerror = () => { renderStatus((lastSnapshot && lastSnapshot.meta) || {}, false); };
+  }
+
+  fitEye();
+  fetch("/api/snapshot").then(r => r.json()).then(render).catch(() => {});
+  connect();
+})();
+</script>
+</body>
+</html>
