@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import time
+import fcntl
 
 LOG = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.claude/session-board/events.jsonl")
 
@@ -26,7 +27,7 @@ def main():
               "notification_type", "why", "how", "agent_id", "agent_type"):
         if k in raw:
             out[k] = raw[k]
-    for k in ("message", "user_prompt", "last_assistant_message"):
+    for k in ("message", "prompt", "user_prompt", "last_assistant_message"):
         if k in raw:
             out[k] = clip(raw[k])
     ti = raw.get("tool_input")
@@ -39,9 +40,11 @@ def main():
             out["tool_input"] = keep
     try:
         os.makedirs(os.path.dirname(LOG), exist_ok=True)
-        trim_log()
-        with open(LOG, "a") as f:
-            f.write(json.dumps(out, ensure_ascii=False) + "\n")
+        with open(LOG + ".lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            trim_log()
+            with open(LOG, "a") as f:
+                f.write(json.dumps(out, ensure_ascii=False) + "\n")
     except Exception:
         pass
 

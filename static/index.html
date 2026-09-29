@@ -163,7 +163,37 @@
   .empty { position: relative; z-index: 1; text-align: center; font-style: italic; color: #6f6b88; padding: 40px 20px; font-size: 18px; }
   .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: rgba(10,10,24,0.92); border: 1px solid rgba(232,227,239,0.18); color: #e8e3ef; font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 11px; padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 5; }
   .toast.show { opacity: 1; }
-  @media (prefers-reduced-motion: reduce) { :root { --pace: 0.35; } .stars { animation: none; } }
+  .toolbar { position: relative; z-index: 2; max-width: 1376px; margin: 18px auto 0; padding: 0 32px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font: 12px "IBM Plex Mono", monospace; color: #aaa3bf; }
+  input, select, .action { background: #151322; color: #e8e3ef; border: 1px solid #4b455e; border-radius: 5px; padding: 8px; font: inherit; }
+  input[type=search] { flex: 1; min-width: 160px; }
+  .action { cursor: pointer; }
+  .session-card { min-width: 0; }
+  .session-card > .lantern { width: 100%; }
+  .inspect { display: block; margin: 9px auto 0; font: 10px "IBM Plex Mono", monospace; color: #aaa3bf; background: none; border: 0; cursor: pointer; padding: 6px 12px; }
+  .children { border-left: 1px solid #4b455e; margin: 12px 0 0 15px; padding-left: 12px; display: grid; gap: 14px; }
+  .children[hidden] { display: none; }
+  .agent-group { margin-top: 10px; }
+  .agent-group > summary { cursor: pointer; text-align: center; color: #aaa3bf; font: 11px "IBM Plex Mono", monospace; padding: 8px; }
+  .children .glass { display: none; }
+  .children .plate { text-align: left; }
+  .children .foot { justify-content: flex-start; }
+  .children .inspect { margin-left: 0; }
+  .provider { font: 10px "IBM Plex Mono", monospace; color: #aaa3bf; margin-bottom: 5px; }
+  .unknown { --c: #a39ab8; }
+  .unknown .glass { border-style: dotted; }
+  .unknown .flame { opacity: .3; background: #a39ab8; }
+  .stale .plate::after { content: "stale observation"; display: block; font: 10px monospace; color: #e6cf63; margin-top: 5px; }
+  body.compact .sky { display: none; }
+  body.compact .toolbar { padding-top: 85px; }
+  body.compact .session-card .glass { display: none; }
+  body.compact .lanterns { gap: 18px; padding-top: 18px; }
+  dialog { max-width: 680px; width: calc(100% - 64px); max-height: 80vh; color: #e8e3ef; background: #100e1b; border: 1px solid #4b455e; border-radius: 10px; padding: 24px; font: 13px/1.6 "IBM Plex Mono", monospace; }
+  dialog::backdrop { background: #000a; }
+  dialog h2 { font: 20px/1.3 Georgia, serif; overflow-wrap: anywhere; }
+  dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+  dialog .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  @media (max-width: 700px) { .legend { position: relative; left: auto; top: auto; padding: 14px; } .status { position: relative; right: auto; top: auto; text-align: left; padding: 0 14px; overflow-wrap: anywhere; } body.compact .toolbar { padding-top: 0; } .lanterns { padding: 28px 16px; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
@@ -178,6 +208,7 @@
     <span><i class="dot" style="background: #e6cf63;"></i>needs you <b data-count="needs-you">0</b></span>
     <span><i class="dot" style="background: #55506e;"></i>resting <b data-count="resting">0</b></span>
     <span><i class="dot" style="background: #c22a33;"></i>blocked <b data-count="blocked">0</b></span>
+    <span><i class="dot" style="background: #a39ab8;"></i>unconfirmed <b data-count="unknown">0</b></span>
   </div>
   <div class="status" id="status">connecting…</div>
 
@@ -234,12 +265,30 @@
     <div class="horizon"></div>
   </div>
 
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="Search sessions, projects, prompts…" aria-label="Search sessions">
+    <select id="providerFilter" aria-label="Provider"><option value="">All providers</option><option value="claude">Claude</option><option value="codex">Codex</option></select>
+    <select id="stateFilter" aria-label="State"><option value="">All states</option><option value="attention">Needs attention</option><option value="working">Working</option><option value="resting">Resting</option><option value="unknown">Unconfirmed</option><option value="gone">Gone / completed</option></select>
+    <select id="sort" aria-label="Sort sessions"><option value="attention">Attention first</option><option value="started">Start time</option><option value="project">Project</option></select>
+    <label><input id="compact" type="checkbox"> Compact</label>
+    <span id="visibleCount"></span>
+  </div>
   <div class="lanterns" id="lanterns"></div>
-  <div class="empty" id="empty" hidden>No sessions are lit. Open a Claude Code window and the eye will find it.</div>
+  <div class="empty" id="empty" hidden>No sessions found.</div>
 </div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status"></div>
+<dialog id="sessionDialog" aria-labelledby="dialogTitle">
+  <h2 id="dialogTitle"></h2>
+  <pre id="dialogDetail"></pre>
+  <div class="actions">
+    <button class="action" id="raiseTab">Raise Terminal tab</button>
+    <button class="action" id="copyId">Copy session ID</button>
+    <button class="action" id="closeDialog">Close</button>
+  </div>
+</dialog>
 
 <template id="lanternTpl">
+  <article class="session-card">
   <button class="lantern" type="button">
     <div class="glass">
       <svg class="sign" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M24 24 C 25 17, 31 12, 37 15 C 40 17, 39 22, 35 22"></path><path d="M24 24 C 25 17, 31 12, 37 15 C 40 17, 39 22, 35 22" transform="rotate(120 24 24)"></path><path d="M24 24 C 25 17, 31 12, 37 15 C 40 17, 39 22, 35 22" transform="rotate(240 24 24)"></path><circle cx="24" cy="24" r="2.2" fill="currentColor" stroke="none"></circle></svg>
@@ -249,6 +298,7 @@
       <svg class="crack" viewBox="0 0 62 62"><path d="M52 5 L44 16 L48 23 L38 30 L41 39 L33 46 L36 56"></path><path d="M44 16 L36 12 M38 30 L30 26 M41 39 L47 43"></path></svg>
     </div>
     <div class="plate">
+      <div class="provider"></div>
       <div class="name"></div>
       <div class="title"></div>
       <div class="foot">
@@ -262,11 +312,14 @@
       <div class="detail"></div>
     </div>
   </button>
+  <button class="inspect" type="button">Details</button>
+  <details class="agent-group" hidden><summary>Subagents</summary><div class="children"></div></details>
+  </article>
 </template>
 
 <script>
 (() => {
-  const STATE_CLASS = { "needs-you": "needs", working: "working", resting: "resting", blocked: "blocked", gone: "gone" };
+  const STATE_CLASS = { "needs-you": "needs", working: "working", resting: "resting", blocked: "blocked", gone: "gone", unknown: "unknown" };
   const AGE_FULL = 30 * 60; // seconds until a resting lantern is fully sallow
   const lanterns = document.getElementById("lanterns");
   const empty = document.getElementById("empty");
@@ -279,6 +332,21 @@
   const nodes = new Map();   // key -> element
   let lastSnapshot = null;
   let toastTimer = null;
+  let dialogKey = null;
+  let connected = false;
+  let lastReceived = 0;
+  const dialog = document.getElementById("sessionDialog");
+  const controls = ["search", "providerFilter", "stateFilter", "sort", "compact"].map(id => document.getElementById(id));
+  try {
+    const saved = JSON.parse(localStorage.getItem("sessionBoard.controls") || "{}");
+    controls.forEach(c => { if (c.type === "checkbox") c.checked = !!saved[c.id]; else if (saved[c.id] != null) c.value = saved[c.id]; });
+  } catch (_) {}
+  document.body.classList.toggle("compact", controls[4].checked);
+  controls.forEach(c => c.addEventListener("input", () => {
+    document.body.classList.toggle("compact", controls[4].checked);
+    try { localStorage.setItem("sessionBoard.controls", JSON.stringify(Object.fromEntries(controls.map(c => [c.id, c.type === "checkbox" ? c.checked : c.value])))); } catch (_) {}
+    if (lastSnapshot) render(lastSnapshot);
+  }));
 
   function showToast(msg) {
     toast.textContent = msg;
@@ -311,41 +379,100 @@
   function render(snap) {
     lastSnapshot = snap;
     const now = snap.meta.now;
-    const seen = new Set(snap.sessions.map(s => s.key));
-    let needsCount = 0;
+    const byKey = new Map(snap.sessions.map(s => [s.key, s]));
+    const [query, provider, state, sort] = controls.map(c => c.value);
+    const matches = snap.sessions.filter(s => (!provider || s.provider === provider) &&
+      (!state || (state === "attention" ? ["needs-you", "blocked"].includes(s.state) : s.state === state)) &&
+      [s.name, s.title, s.cwd, s.prompt, s.detail, s.sessionId].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
+    const seen = new Set(matches.map(s => s.key));
+    // Retain the parent chain when a child matches a filter.
+    for (const s of matches) {
+      let parent = s.parentKey;
+      const visited = new Set([s.key]);
+      while (byKey.has(parent) && !visited.has(parent)) { visited.add(parent); seen.add(parent); parent = byKey.get(parent).parentKey; }
+    }
+    const priority = { "needs-you": 0, blocked: 1, working: 2, unknown: 3, resting: 4, gone: 5 };
+    const rank = s => {
+      let value = priority[s.state] ?? 6;
+      for (const child of matches) {
+        let parent = child.parentKey;
+        const visited = new Set();
+        while (byKey.has(parent) && !visited.has(parent)) {
+          if (parent === s.key) value = Math.min(value, priority[child.state] ?? 6);
+          visited.add(parent); parent = byKey.get(parent).parentKey;
+        }
+      }
+      return value;
+    };
+    const rows = snap.sessions.filter(s => seen.has(s.key)).sort((a, b) =>
+      (sort === "attention" ? rank(a) - rank(b) : sort === "project" ? a.cwd.localeCompare(b.cwd) : 0) || (a.startedAt || 0) - (b.startedAt || 0) || a.key.localeCompare(b.key));
+    const needsCount = snap.sessions.filter(s => s.state === "needs-you").length;
     for (const [key, el] of nodes) {
       if (!seen.has(key)) { el.remove(); nodes.delete(key); }
     }
 
-    snap.sessions.forEach((s, i) => {
+    rows.forEach(s => {
       let el = nodes.get(s.key);
       if (!el) {
         el = tpl.content.firstElementChild.cloneNode(true);
         el.dataset.key = s.key;
         el.querySelector(".flame").style.animationDelay = `calc(${(Math.random() * 1.2).toFixed(2)}s / var(--pace))`;
-        el.addEventListener("click", () => focus(el.dataset.key));
+        el.querySelector(".lantern").addEventListener("click", () => {
+          const current = lastSnapshot.sessions.find(s => s.key === el.dataset.key);
+          if (current && current.hasTab) focus(el.dataset.key); else inspect(el.dataset.key);
+        });
+        el.querySelector(".inspect").addEventListener("click", () => inspect(el.dataset.key));
         nodes.set(s.key, el);
       }
       const cls = STATE_CLASS[s.state] || "resting";
-      const wanted = "lantern " + cls + (s.hasTab ? "" : " notab");
-      if (el.className.replace(" flash", "") !== wanted) el.className = wanted;
+      const wanted = "lantern " + cls + (s.stale ? " stale" : "");
+      const button = el.querySelector(".lantern");
+      if (button.className.replace(" flash", "") !== wanted) button.className = wanted;
       const age = s.state === "resting" ? Math.max(0, Math.min(1, (now - (s.state_since || now)) / AGE_FULL)) : 0;
       el.style.setProperty("--age", age.toFixed(3));
       setText(el, ".name", s.name);
+      const childCount = snap.sessions.filter(child => child.parentKey === s.key).length;
+      setText(el, ".provider", (s.provider === "codex" ? "Codex" : "Claude") + (s.parentKey ? " · subagent" : "") + (childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""));
       setText(el, ".title", s.title);
       setText(el, ".foot span", s.foot);
       setText(el, ".detail", s.detail || "");
       el.title = tooltip(s);
-      if (s.state === "needs-you") needsCount++;
-      // keep DOM order = snapshot order (stable by start time)
-      if (lanterns.children[i] !== el) lanterns.insertBefore(el, lanterns.children[i] || null);
+      button.setAttribute("aria-label", `${s.name}: ${s.state}. ${s.hasTab ? "Raise Terminal tab" : "View details"}`);
     });
-    empty.hidden = snap.sessions.length > 0;
+    // Append in sorted order, nesting children. Guard against malformed cycles.
+    const positions = new Map();
+    for (const s of rows) {
+      let parent = s.parentKey;
+      const visited = new Set([s.key]);
+      let cursor = parent;
+      while (byKey.has(cursor)) {
+        if (visited.has(cursor)) { parent = null; break; }
+        visited.add(cursor); cursor = byKey.get(cursor).parentKey;
+      }
+      const container = parent && nodes.has(parent) ? nodes.get(parent).querySelector(".children") : lanterns;
+      const el = nodes.get(s.key);
+      const position = positions.get(container) || 0;
+      if (container.children[position] !== el) container.insertBefore(el, container.children[position] || null);
+      positions.set(container, position + 1);
+    }
+    for (const el of nodes.values()) {
+      const group = el.querySelector(".agent-group");
+      const children = el.querySelector(".children");
+      group.hidden = children.children.length === 0;
+      group.querySelector("summary").textContent = `${children.children.length} subagent${children.children.length === 1 ? "" : "s"}`;
+      const attention = [...children.querySelectorAll(".needs, .blocked")].map(n => n.closest(".session-card").dataset.key).join(",");
+      if ((attention && attention !== group.dataset.attention) || ((query || state) && !group.hidden)) group.open = true;
+      group.dataset.attention = attention;
+    }
+    empty.hidden = rows.length > 0;
+    empty.textContent = snap.sessions.length ? "No sessions match these filters." : "No sessions found. Open Claude Code or Codex to begin.";
+    document.getElementById("visibleCount").textContent = `${matches.length} of ${snap.sessions.length}`;
     document.body.classList.toggle("has-needs", needsCount > 0);
 
     const c = snap.meta.counts || {};
     legend.querySelectorAll("[data-count]").forEach(b => { b.textContent = c[b.dataset.count] || 0; });
-    renderStatus(snap.meta, true);
+    renderStatus(snap.meta, connected);
+    if (dialog.open) updateDialog();
     document.title = (needsCount ? `(${needsCount}) ` : "") + "Session Board";
     aim();
   }
@@ -359,12 +486,12 @@
     const bits = [];
     if (!connected) bits.push(`<span class="lost">lost the server · retrying</span>`);
     const n = (lastSnapshot ? lastSnapshot.sessions.length : 0);
-    bits.push(`${n} session${n === 1 ? "" : "s"} · polled every ${meta.poll || 2}s`);
+    bits.push(`${n} sessions / agents · updated ${lastReceived ? fmtAgo(Math.floor((Date.now() - lastReceived) / 1000)) : "pending"}`);
     if (meta.hooks_installed) {
       const ago = meta.hook_last_ts ? Math.round(meta.now - meta.hook_last_ts) : null;
       bits.push(`hooks on · ${meta.hook_events} events${ago != null ? " · last " + fmtAgo(ago) : ""}`);
     } else {
-      bits.push(`<span class="warn">hooks off · run: python3 server.py --install-hooks</span>`);
+      bits.push(`<span class="warn">${meta.hooks_missing && meta.hooks_missing.length < 10 ? "hooks need updating" : "hooks off"} · run: python3 server.py --install-hooks</span>`);
     }
     for (const [k, v] of Object.entries(meta.errors || {})) bits.push(`<span class="bad">${k}: ${esc(v)}</span>`);
     status.innerHTML = bits.join("<br>");
@@ -392,7 +519,7 @@
     const s = lastSnapshot && lastSnapshot.sessions.find(x => x.key === key);
     if (!s) return;
     if (!s.tty) { showToast(s.kind === "background" ? "background agent: no window to raise" : "no tty for this session"); return; }
-    const el = nodes.get(key);
+    const el = nodes.get(key)?.querySelector(".lantern");
     try {
       const res = await fetch("/api/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tty: s.tty }) });
       const j = await res.json();
@@ -406,16 +533,55 @@
     }
   }
 
+  function inspect(key) {
+    dialogKey = key;
+    updateDialog();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function updateDialog() {
+    const s = lastSnapshot.sessions.find(s => s.key === dialogKey);
+    if (!s) { dialog.close(); return; }
+    document.getElementById("dialogTitle").textContent = s.title || s.name;
+    const parent = lastSnapshot.sessions.find(p => p.key === s.parentKey);
+    document.getElementById("dialogDetail").textContent = [
+      `${s.provider === "codex" ? "Codex" : "Claude"} · ${s.state}${s.stale ? " · stale observation" : ""}`,
+      s.cwd, parent ? `Parent: ${parent.title || parent.name}` : "",
+      s.model ? `Model: ${s.model}` : "", s.foot, s.detail,
+      s.prompt ? `Last prompt: ${s.prompt}` : "", s.toolsDone != null ? `Tools completed: ${s.toolsDone}` : "",
+      `Session: ${s.sessionId}`, s.tracking || "",
+      s.agentId ? `Agent: ${s.agentId}` : "",
+      s.provider === "codex" ? "Terminal focus is unavailable for Codex sessions." : ""
+    ].filter(Boolean).join("\n\n");
+    document.getElementById("raiseTab").hidden = !s.hasTab;
+    document.getElementById("copyId").textContent = s.agentId ? "Copy agent ID" : "Copy session ID";
+  }
+  document.getElementById("closeDialog").addEventListener("click", () => dialog.close());
+  document.getElementById("raiseTab").addEventListener("click", () => focus(dialogKey));
+  document.getElementById("copyId").addEventListener("click", async () => {
+    const s = lastSnapshot.sessions.find(s => s.key === dialogKey);
+    if (!s) return;
+    try { await navigator.clipboard.writeText(s.agentId || s.sessionId); showToast("Session ID copied"); }
+    catch (_) { showToast("Could not copy. The ID is shown in details."); }
+  });
+
+  function receive(snap) {
+    connected = true;
+    lastReceived = Date.now();
+    render(snap);
+  }
+
   function connect() {
     const es = new EventSource("/events");
     es.addEventListener("snapshot", ev => {
-      try { render(JSON.parse(ev.data)); } catch (e) { console.error(e); }
+      try { receive(JSON.parse(ev.data)); } catch (e) { console.error(e); }
     });
-    es.onerror = () => { renderStatus((lastSnapshot && lastSnapshot.meta) || {}, false); };
+    es.onerror = () => { connected = false; renderStatus((lastSnapshot && lastSnapshot.meta) || {}, false); };
   }
 
   fitEye();
-  fetch("/api/snapshot").then(r => r.json()).then(render).catch(() => {});
+  fetch("/api/snapshot").then(r => r.json()).then(receive).catch(() => {});
+  setInterval(() => { if (lastSnapshot) renderStatus(lastSnapshot.meta, connected && Date.now() - lastReceived < 30000); }, 1000);
   connect();
 })();
 </script>

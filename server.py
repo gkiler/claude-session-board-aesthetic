@@ -33,6 +33,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 from urllib.request import urlopen
+from codex_source import CodexSource
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -44,7 +45,7 @@ POLL = 2.0
 GONE_TTL = 90.0          # seconds a vanished session lingers as "gone"
 NOTE_TTL = 15 * 60       # a permission/question notification older than this no longer forces needs-you
 NEEDS_EVENTS = ("permission_prompt", "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog")
-HOOK_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "Notification"]
+HOOK_EVENTS = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "Notification", "SubagentStart", "SubagentStop"]
 
 
 def log(msg):
@@ -62,7 +63,9 @@ def read_agents():
     if out.returncode != 0:
         raise RuntimeError(f"claude agents failed: {out.stderr.strip()[:200]}")
     data = json.loads(out.stdout or "[]")
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+        raise RuntimeError("claude agents returned an unexpected response")
+    return data
 
 
 def tty_for_pids(pids):
@@ -143,6 +146,7 @@ class HookLog:
         self.offset = 0
         self.inode = None
         self.sessions = {}      # session_id -> digest
+        self.children = {}      # parent session_id -> agent_id -> digest
         self.count = 0
         self.last_ts = None
         self._load_initial()
@@ -187,48 +191,57 @@ class HookLog:
             ev = json.loads(line)
         except Exception:
             return
+        if not isinstance(ev, dict):
+            return
         sid = ev.get("session_id")
         name = ev.get("hook_event_name")
         ts = ev.get("ts")
-        if not sid or not name or ts is None:
+        if not sid or not name or not isinstance(ts, (int, float)):
             return
         self.count += 1
         self.last_ts = ts
-        d = self.sessions.setdefault(sid, {
+        agent_id = ev.get("agent_id")
+        target = self.children.setdefault(sid, {}) if agent_id else self.sessions
+        d = target.setdefault(agent_id or sid, {
             "prompt": None, "prompt_ts": None, "tool": None, "tool_ts": None, "tool_detail": None,
             "stop_ts": None, "start_ts": None, "end_ts": None, "note": None, "note_type": None,
             "note_ts": None, "tools_done": 0, "last_ts": None, "last_event": None, "cwd": None,
             "last_assistant_message": None,
+            "active_tools": {}, "agent_type": ev.get("agent_type"),
         })
         d["last_ts"] = ts
         d["last_event"] = name
         if ev.get("cwd"):
             d["cwd"] = ev["cwd"]
-        if name == "SessionStart":
+        if name in ("SessionStart", "SubagentStart"):
             d["start_ts"] = ts
             d["end_ts"] = None
         elif name == "SessionEnd":
             d["end_ts"] = ts
         elif name == "UserPromptSubmit":
-            d["prompt"] = ev.get("user_prompt")
+            d["prompt"] = ev.get("prompt") or ev.get("user_prompt")
             d["prompt_ts"] = ts
             d["stop_ts"] = None
             d["note"] = d["note_type"] = d["note_ts"] = None
             d["tool"] = None
+            d["active_tools"].clear()
         elif name == "PreToolUse":
             d["tool"] = ev.get("tool_name")
             d["tool_ts"] = ts
             ti = ev.get("tool_input") or {}
             d["tool_detail"] = ti.get("description") or ti.get("command") or ti.get("file_path") or ti.get("pattern") or ti.get("skill") or ti.get("url")
+            d["active_tools"][ev.get("tool_use_id") or "legacy"] = (d["tool"], ts, d["tool_detail"])
             d["note"] = d["note_type"] = d["note_ts"] = None
-        elif name == "PostToolUse":
-            d["tool"] = None
+        elif name in ("PostToolUse", "PostToolUseFailure"):
+            d["active_tools"].pop(ev.get("tool_use_id") or "legacy", None)
+            d["tool"], d["tool_ts"], d["tool_detail"] = next(reversed(d["active_tools"].values()), (None, None, None))
             d["tools_done"] += 1
             d["note"] = d["note_type"] = d["note_ts"] = None
-        elif name == "Stop":
+        elif name in ("Stop", "SubagentStop"):
             d["stop_ts"] = ts
             d["last_assistant_message"] = ev.get("last_assistant_message")
             d["tool"] = None
+            d["active_tools"].clear()
             d["note"] = d["note_type"] = d["note_ts"] = None
         elif name == "Notification":
             d["note_type"] = ev.get("notification_type")
@@ -258,6 +271,7 @@ def clean_title(title):
 class Board:
     def __init__(self):
         self.hooks = HookLog(LOG_PATH)
+        self.codex = CodexSource()
         self.seen = {}         # key -> {"row": merged row, "gone_at": ts or None, "state_since": ts, "state": ...}
         self.snapshot = {"sessions": [], "meta": {}}
         self.errors = {}
@@ -319,9 +333,40 @@ class Board:
                 row["foot"] = f"resting {fmt_dur(now - entry['state_since'])}"
             entry["row"] = row
 
+            for aid, h in self.hooks.children.get(key, {}).items():
+                child_key = f"{key}:agent:{aid}"
+                ended = h.get("stop_ts") or h.get("end_ts")
+                if (ended and now - ended > GONE_TTL) or now - h["last_ts"] > 86400:
+                    continue
+                child = self.merge_row({"sessionId": child_key, "name": h.get("agent_type") or aid,
+                    "cwd": a.get("cwd"), "status": "idle" if ended else "busy"}, {}, {}, now, hook=h)
+                child.update(parentKey=key, sessionId=key, kind="subagent", agentId=aid,
+                    state_since=ended or h.get("note_ts") or h.get("start_ts") or h["last_ts"],
+                    title=h.get("agent_type") or "subagent",
+                    toolsDone=h["tools_done"], tty=row["tty"], hasTab=row["hasTab"])
+                if ended:
+                    child.update(state="gone", foot="completed", detail=h.get("last_assistant_message") or "")
+                elif now - h["last_ts"] > 300:
+                    child.update(state="unknown", stale=True, foot="no recent subagent events")
+                self.seen[child_key] = {"row": child, "gone_at": ended, "state": child["state"], "state_since": child["state_since"]}
+                live_keys.add(child_key)
+
+        try:
+            for row in self.codex.poll(now):
+                key = row["key"]
+                live_keys.add(key)
+                self.seen[key] = {"row": row, "gone_at": None, "state": row["state"], "state_since": row["state_since"]}
+            self.errors.pop("codex", None)
+        except Exception as e:
+            self.errors["codex"] = str(e)
+
         # Sessions that vanished linger briefly as "gone".
         for key, entry in list(self.seen.items()):
             if key in live_keys:
+                continue
+            source = entry["row"].get("provider", "claude")
+            if ("agents" if source == "claude" else "codex") in self.errors:
+                entry["row"].update(stale=True, foot="source unavailable · last known state")
                 continue
             if entry["gone_at"] is None:
                 entry["gone_at"] = now
@@ -343,6 +388,7 @@ class Board:
                 "poll": POLL,
                 "counts": counts,
                 "hooks_installed": hooks_installed(),
+                "hooks_missing": missing_hooks(),
                 "hook_events": self.hooks.count,
                 "hook_last_ts": self.hooks.last_ts,
                 "log_path": LOG_PATH,
@@ -374,12 +420,12 @@ class Board:
             return h["note_ts"]
         return entry["state_since"]
 
-    def merge_row(self, a, ttys, tabs, now, entry=None):
+    def merge_row(self, a, ttys, tabs, now, entry=None, hook=None):
         sid = a.get("sessionId") or a.get("id")
         pid = a.get("pid")
         tty = ttys.get(pid) if pid else None
         tab = tabs.get(tty) if tty else None
-        h = self.hooks.sessions.get(sid)
+        h = hook if hook is not None else self.hooks.sessions.get(sid)
         kind = a.get("kind", "interactive")
         started = a.get("startedAt")
         started_s = started / 1000.0 if isinstance(started, (int, float)) and started > 1e11 else started
@@ -449,6 +495,9 @@ class Board:
 
         return {
             "key": sid,
+            "provider": "claude",
+            "parentKey": None,
+            "stale": False,
             "sessionId": sid,
             "pid": pid,
             "kind": kind,
@@ -489,20 +538,24 @@ def load_settings():
 
 
 def hooks_installed():
+    return not missing_hooks()
+
+
+def missing_hooks():
     try:
         hooks = load_settings().get("hooks", {})
     except Exception:
-        return False
-    return any(
+        return list(HOOK_EVENTS)
+    return [ev for ev in HOOK_EVENTS if not any(
         HOOK_CMD in (h.get("command") or "")
-        for groups in hooks.values() for g in groups for h in g.get("hooks", [])
-    )
+        for g in hooks.get(ev, []) for h in g.get("hooks", []))]
 
 
 def write_settings(settings):
     """Back up settings.json, then replace it atomically."""
     backup = SETTINGS_PATH + ".session-board.bak"
-    if os.path.exists(SETTINGS_PATH):
+    os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+    if os.path.exists(SETTINGS_PATH) and not os.path.exists(backup):
         shutil.copy2(SETTINGS_PATH, backup)
     tmp = SETTINGS_PATH + ".session-board.tmp"
     with open(tmp, "w") as f:
